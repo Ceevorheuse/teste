@@ -1,0 +1,372 @@
+<?php
+session_start();
+require 'db.php';
+
+// Define ID do usuário atual (0 se não estiver logado)
+$my_id = $_SESSION['user_id'] ?? 0;
+
+// Query Poderosa: Busca Post + Usuário + Contagem de Likes + Se eu curti
+$sql = "SELECT posts.*, users.username, users.avatar_path,
+        (SELECT COUNT(*) FROM likes WHERE post_id = posts.id) as like_count,
+        (SELECT COUNT(*) FROM likes WHERE post_id = posts.id AND user_id = $my_id) as liked_by_me
+        FROM posts 
+        JOIN users ON posts.user_id = users.id 
+        ORDER BY posts.id DESC";
+
+$result = $conn->query($sql);
+?>
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LibreFunny - Feed</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --brand-yellow: #FFCC00;
+            --text-main: #ffffff;
+            --input-bg: #2C2C2C;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            padding-top: 80px; 
+        }
+
+        /* Navbar & Sidebar */
+        .navbar { background-color: var(--bg-color); border-bottom: 1px solid #333; padding: 10px 20px; }
+        .brand-logo { font-weight: 900; font-size: 1.5rem; color: white; text-decoration: none; text-transform: uppercase; letter-spacing: 1px; }
+        .brand-logo span { color: var(--brand-yellow); }
+        .btn-add-meme { background-color: var(--brand-yellow); color: black; font-weight: bold; border-radius: 20px; padding: 6px 24px; border: none; transition: 0.2s; }
+        .btn-add-meme:hover { background-color: #e6b800; }
+        .sidebar-link { color: var(--text-main); text-decoration: none; display: flex; align-items: center; gap: 15px; padding: 12px 15px; font-weight: 600; border-radius: 8px; margin-bottom: 5px; }
+        .sidebar-link:hover, .sidebar-link.active { background-color: #333; color: var(--brand-yellow); }
+        
+        /* Post Card */
+        .post-card { background-color: #000; border: 1px solid #333; border-radius: 8px; margin-bottom: 30px; overflow: hidden; }
+        .post-header { padding: 15px; }
+        .post-title { font-size: 1.1rem; margin: 0; font-weight: 500; }
+        .post-user { font-size: 0.9rem; color: #888; margin-bottom: 5px; display: block; }
+        .post-media { width: 100%; background-color: #111; display: flex; justify-content: center; align-items: center; min-height: 300px; }
+        .post-media img { max-width: 100%; max-height: 600px; object-fit: contain; }
+        
+        .post-footer { background-color: var(--card-bg); padding: 10px 15px; border-top: 1px solid #333; }
+        .action-btn { background: none; border: none; color: #888; font-size: 1.3rem; display: flex; align-items: center; gap: 6px; padding: 5px 10px; transition: 0.2s; }
+        .action-btn:hover { color: white; }
+        
+        /* Classe especial para quando está curtido */
+        .action-btn.liked { color: var(--brand-yellow); }
+        .action-btn.liked i { font-weight: 900; } /* Deixa o ícone preenchido */
+
+        /* Área de Comentários */
+        .comments-section { display: none; background-color: #181818; padding: 15px; border-top: 1px solid #333; }
+        .comment-item { display: flex; gap: 10px; margin-bottom: 10px; font-size: 0.9rem; }
+        .comment-avatar { width: 30px; height: 30px; border-radius: 50%; }
+        .comment-content { background: #2b2b2b; padding: 8px 12px; border-radius: 12px; color: #ddd; }
+        .comment-author { color: var(--brand-yellow); font-weight: bold; font-size: 0.8rem; display: block; }
+
+        /* Modals */
+        .modal-content { background-color: #242424; color: white; border-radius: 12px; border: 1px solid #333; }
+        .modal-header { border-bottom: none; justify-content: center; padding-top: 30px; }
+        .modal-title { font-weight: 900; font-size: 1.8rem; }
+        .modal-body { padding: 20px 40px 40px; }
+        .form-control { background-color: var(--input-bg); border: 1px solid #444; color: white; border-radius: 8px; padding: 12px; margin-bottom: 15px; }
+        .form-control:focus { background-color: #333; color: white; border-color: var(--brand-yellow); box-shadow: none; }
+        .btn-auth { width: 100%; padding: 12px; border-radius: 25px; font-weight: bold; margin-bottom: 10px; }
+        .btn-primary-auth { background-color: #444; color: white; border: none; }
+        .btn-primary-auth:hover { background-color: #555; }
+        .auth-switch { text-align: center; margin-top: 20px; font-size: 0.9rem; color: #888; }
+        .auth-switch a { color: var(--brand-yellow); text-decoration: none; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar fixed-top">
+        <div class="container-fluid d-flex justify-content-between align-items-center">
+            <a href="index.php" class="brand-logo ms-2">Libre<span>Funny</span></a>
+            
+            <div class="d-flex align-items-center gap-3">
+                <?php if(isset($_SESSION['user_id'])): ?>
+                    <button class="btn-add-meme" data-bs-toggle="modal" data-bs-target="#publishModal">
+                        <i class="fa-solid fa-plus me-1"></i> Publicar
+                    </button>
+                    <a href="profile.php" class="text-white ms-3" style="font-size: 1.5rem;" title="Meu Perfil">
+                        <i class="fa-solid fa-circle-user"></i>
+                    </a>
+                    <a href="logout.php" class="btn btn-sm btn-outline-danger ms-2">Sair</a>
+                <?php else: ?>
+                    <button class="btn btn-warning fw-bold px-4 rounded-pill" data-bs-toggle="modal" data-bs-target="#loginModal">
+                        Entrar
+                    </button>
+                <?php endif; ?>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-3 d-none d-md-block">
+                <div class="position-sticky" style="top: 100px;">
+                    <a href="index.php" class="sidebar-link active"><i class="fa-solid fa-house"></i> Feed</a>
+                    <?php if(isset($_SESSION['user_id'])): ?>
+                        <a href="profile.php" class="sidebar-link"><i class="fa-solid fa-user"></i> Meu Perfil</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="col-md-6" id="feed-container">
+                <?php if ($result->num_rows > 0): ?>
+                    <?php while($row = $result->fetch_assoc()): ?>
+                        
+                        <div class="post-card">
+                            <div class="post-header">
+                                <span class="post-user">@<?php echo htmlspecialchars($row['username']); ?></span>
+                                <h2 class="post-title"><?php echo htmlspecialchars($row['title']); ?></h2>
+                            </div>
+                            <div class="post-media">
+                                <img src="<?php echo $row['image_path']; ?>" alt="Meme">
+                            </div>
+                            <div class="post-footer d-flex justify-content-between">
+                                <div class="d-flex gap-3">
+                                    <button class="action-btn <?php echo $row['liked_by_me'] ? 'liked' : ''; ?>" 
+                                            onclick="toggleLike(this, <?php echo $row['id']; ?>)">
+                                        <i class="<?php echo $row['liked_by_me'] ? 'fa-solid' : 'fa-regular'; ?> fa-face-smile"></i> 
+                                        <span><?php echo $row['like_count']; ?></span>
+                                    </button>
+                                    
+                                    <button class="action-btn" onclick="toggleComments(<?php echo $row['id']; ?>)">
+                                        <i class="fa-regular fa-comment"></i>
+                                    </button>
+                                </div>
+                                <button class="action-btn"><i class="fa-solid fa-share"></i></button>
+                            </div>
+
+                            <div class="comments-section" id="comments-<?php echo $row['id']; ?>">
+                                <div class="comments-list mb-2" id="list-<?php echo $row['id']; ?>">
+                                    <?php 
+                                        $pid = $row['id'];
+                                        $coms = $conn->query("SELECT c.*, u.username, u.avatar_path FROM comments c JOIN users u ON c.user_id = u.id WHERE post_id = $pid ORDER BY c.id ASC LIMIT 5");
+                                        while($c = $coms->fetch_assoc()){
+                                            echo "<div class='comment-item'>
+                                                    <img src='{$c['avatar_path']}' class='comment-avatar'>
+                                                    <div class='comment-content'>
+                                                        <span class='comment-author'>{$c['username']}</span>
+                                                        {$c['content']}
+                                                    </div>
+                                                  </div>";
+                                        }
+                                    ?>
+                                </div>
+                                
+                                <?php if(isset($_SESSION['user_id'])): ?>
+                                    <div class="d-flex gap-2">
+                                        <input type="text" class="form-control form-control-sm mb-0" id="input-<?php echo $row['id']; ?>" placeholder="Escreva algo...">
+                                        <button class="btn btn-sm btn-warning fw-bold" onclick="sendComment(<?php echo $row['id']; ?>)">Enviar</button>
+                                    </div>
+                                <?php else: ?>
+                                    <small class="text-muted">Faça login para comentar.</small>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                    <?php endwhile; ?>
+                <?php else: ?>
+                    <div class="text-center mt-5"><h3>Nenhum meme ainda... 😔</h3></div>
+                <?php endif; ?>
+            </div>
+            <div class="col-md-3 d-none d-lg-block"></div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="loginModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body">
+                    <h5 class="modal-title text-center mb-4">Entrar no LibreFunny</h5>
+                    <form id="loginForm">
+                        <input type="hidden" name="action" value="login">
+                        <input type="text" class="form-control" name="username" placeholder="Usuário" required>
+                        <input type="password" class="form-control" name="password" placeholder="Senha" required>
+                        <div id="loginError" class="text-danger mb-3 text-center small"></div>
+                        <button type="submit" class="btn btn-auth btn-primary-auth">Entrar</button>
+                    </form>
+                    <div class="auth-switch">ou <a onclick="switchModal('loginModal', 'registerModal')">Criar conta</a></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="registerModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body">
+                    <h5 class="modal-title text-center mb-4">Criar Conta</h5>
+                    <form id="registerForm">
+                        <input type="hidden" name="action" value="register">
+                        <input type="text" class="form-control" name="username" placeholder="Escolha um usuário" required>
+                        <input type="password" class="form-control" name="password" placeholder="Senha" required>
+                        <div id="registerError" class="text-danger mb-3 text-center small"></div>
+                        <button type="submit" class="btn btn-auth btn-primary-auth">Cadastrar</button>
+                    </form>
+                    <div class="auth-switch">Já tem conta? <a onclick="switchModal('registerModal', 'loginModal')">Entrar</a></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="publishModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">Novo Meme</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+               <div class="modal-body">
+                    <input type="text" class="form-control mb-2" id="memeTitle" placeholder="Legenda/Título">
+                    <input type="file" class="form-control" id="memeFile" accept="image/*">
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" id="btnPublish" class="btn btn-warning fw-bold" onclick="publishMeme()">Publicar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function switchModal(hideId, showId) {
+            bootstrap.Modal.getInstance(document.getElementById(hideId)).hide();
+            new bootstrap.Modal(document.getElementById(showId)).show();
+        }
+
+        // Login & Register (Mantidos)
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            fetch('auth.php', { method: 'POST', body: formData }).then(r=>r.json()).then(d=>{
+                if(d.status==='success') location.reload();
+                else document.getElementById('loginError').innerText = d.message;
+            });
+        });
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            fetch('auth.php', { method: 'POST', body: formData }).then(r=>r.json()).then(d=>{
+                if(d.status==='success') location.reload();
+                else document.getElementById('registerError').innerText = d.message;
+            });
+        });
+
+        // --- LÓGICA DE LIKE ---
+        function toggleLike(btn, postId) {
+            const fd = new FormData();
+            fd.append('action', 'like');
+            fd.append('post_id', postId);
+
+            fetch('interact.php', { method: 'POST', body: fd })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'error') return alert(data.message);
+                
+                // Atualiza visual
+                const icon = btn.querySelector('i');
+                const span = btn.querySelector('span');
+                span.innerText = data.count;
+
+                if(data.liked) {
+                    btn.classList.add('liked');
+                    icon.classList.replace('fa-regular', 'fa-solid');
+                } else {
+                    btn.classList.remove('liked');
+                    icon.classList.replace('fa-solid', 'fa-regular');
+                }
+            });
+        }
+
+        // --- LÓGICA DE COMENTÁRIOS ---
+        function toggleComments(postId) {
+            const section = document.getElementById('comments-' + postId);
+            section.style.display = (section.style.display === 'none' || section.style.display === '') ? 'block' : 'none';
+        }
+
+        function sendComment(postId) {
+            const input = document.getElementById('input-' + postId);
+            const text = input.value;
+            if(!text) return;
+
+            const fd = new FormData();
+            fd.append('action', 'comment');
+            fd.append('post_id', postId);
+            fd.append('content', text);
+
+            fetch('interact.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    // Adiciona o comentário na lista sem recarregar
+                    const list = document.getElementById('list-' + postId);
+                    const html = `
+                        <div class='comment-item'>
+                            <img src='${data.avatar}' class='comment-avatar'>
+                            <div class='comment-content'>
+                                <span class='comment-author'>${data.username}</span>
+                                ${data.content}
+                            </div>
+                        </div>`;
+                    list.insertAdjacentHTML('beforeend', html);
+                    input.value = ''; // Limpa campo
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        // --- PUBLICAR MEME (Corrigido) ---
+        function publishMeme() {
+            const btn = document.getElementById('btnPublish');
+            const title = document.getElementById('memeTitle').value;
+            const file = document.getElementById('memeFile').files[0];
+            const originalText = btn.innerHTML; 
+
+            if(!title || !file) return alert("Preencha tudo!");
+
+            btn.disabled = true; 
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Publicando...'; 
+
+            const formData = new FormData();
+            formData.append('title', title);
+            formData.append('memeFile', file);
+
+            fetch('upload.php', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(d => {
+                if(d.status === 'success') {
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i> Sucesso!';
+                    btn.classList.remove('btn-warning');
+                    btn.classList.add('btn-success');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    alert("Erro: " + d.message);
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            })
+            .catch(e => {
+                console.error(e);
+                alert("Erro ao conectar.");
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+        }
+    </script>
+</body>
+</html>
